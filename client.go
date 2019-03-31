@@ -89,10 +89,27 @@ func MaxConcurrentRequestsPerFile(n int) ClientOption {
 	}
 }
 
-// NewClient creates a new SFTP client on conn, using zero or more option
+// SSHSession provides an abstraction of ssh session functionality
+type SSHSession interface {
+	RequestSubsystem(string) error
+	StdinPipe() (io.WriteCloser, error)
+	StdoutPipe() (io.Reader, error)
+}
+
+// SSHSessionCreator creates an SSHSession
+type SSHSessionCreator func() (SSHSession, error)
+
+// CreateSessionFromClient is a convenience method that produces an SSHSessionCreator from *ssh.Client
+var CreateSessionFromClient = func(conn *ssh.Client) SSHSessionCreator {
+	return func() (SSHSession, error) {
+		return conn.NewSession()
+	}
+}
+
+// NewClientFromSessionCreator creates a new SFTP client from an SSHSessionCreator, using zero or more option
 // functions.
-func NewClient(conn *ssh.Client, opts ...ClientOption) (*Client, error) {
-	s, err := conn.NewSession()
+func NewClientFromSessionCreator(createSession SSHSessionCreator, opts ...ClientOption) (*Client, error) {
+	s, err := createSession()
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +126,12 @@ func NewClient(conn *ssh.Client, opts ...ClientOption) (*Client, error) {
 	}
 
 	return NewClientPipe(pr, pw, opts...)
+}
+
+// NewClient creates a new SFTP client on conn, using zero or more option
+// functions.
+func NewClient(conn *ssh.Client, opts ...ClientOption) (*Client, error) {
+	return NewClientFromSessionCreator(CreateSessionFromClient(conn), opts...)
 }
 
 // NewClientPipe creates a new SFTP client given a Reader and a WriteCloser.
